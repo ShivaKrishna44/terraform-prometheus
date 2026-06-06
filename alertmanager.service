@@ -1,0 +1,11 @@
+[Unit]
+Description=AlertManger System
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/opt/alertmanager/alertmanager --config.file=/opt/alertmanager/alertmanager.yml
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+groups:
+- name: InstanceDown
+  labels:
+    team: devops
+  rules:
+  - alert: InstanceDownAlert
+    expr: up < 1
+    for: 1m
+    keep_firing_for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: Instance is Down
