@@ -126,6 +126,11 @@ resource "aws_instance" "prometheus" {
   user_data              = file("prometheus.sh")
   iam_instance_profile   = aws_iam_instance_profile.prometheus_instance_profile.name
 
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+
   tags = {
     Name = "prometheus-server"
   }

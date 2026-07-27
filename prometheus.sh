@@ -3,6 +3,7 @@ set -e
 
 # Update system
 sudo yum update -y
+sudo yum install -y wget tar
 
 # --- Install Prometheus ---
 cd /opt
@@ -53,13 +54,10 @@ sudo mkdir -p /opt/prometheus/alert-rules
 sudo cat > /opt/prometheus/alert-rules/instance-down.yml << 'EOF'
 groups:
 - name: InstanceDown
-  labels:
-    team: devops
   rules:
   - alert: InstanceDownAlert
     expr: up < 1
     for: 1m
-    keep_firing_for: 5m
     labels:
       severity: critical
     annotations:
@@ -69,8 +67,6 @@ EOF
 sudo cat > /opt/prometheus/alert-rules/cpu-utilisation.yml << 'EOF'
 groups:
 - name: CPUUtilisation
-  labels:
-    team: devops
   rules:
   - alert: CPUUtilisationAlert
     expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])*100)) > 80
@@ -84,8 +80,6 @@ EOF
 sudo cat > /opt/prometheus/alert-rules/memory.yml << 'EOF'
 groups:
 - name: MemoryUsage
-  labels:
-    team: devops
   rules:
   - alert: HighMemoryAlert
     expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
@@ -99,8 +93,6 @@ EOF
 sudo cat > /opt/prometheus/alert-rules/disk.yml << 'EOF'
 groups:
 - name: DiskUsage
-  labels:
-    team: devops
   rules:
   - alert: DiskAlmostFull
     expr: (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 > 80

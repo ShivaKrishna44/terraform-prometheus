@@ -3,6 +3,7 @@ set -e
 
 # Update system
 sudo yum update -y
+sudo yum install -y wget tar
 
 # --- Install Node Exporter ---
 cd /opt
