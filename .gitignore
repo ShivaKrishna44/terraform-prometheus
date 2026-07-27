@@ -15,6 +15,7 @@ override.tf.json
 **/*.tfvars
 !**/prod.tfvars
 !**/dev.tfvars
+.terraform/
 
 # Binaries (should not be in repo)
 kubectl.exe
