@@ -1,37 +1,44 @@
-# Local .terraform directories
-**/.terraform/*
-
-# .tfstate files
+# Terraform
+**/.terraform/
 *.tfstate
 *.tfstate.*
-
-# Crash log files
 crash.log
-crash.*.log
-
-# Exclude all .tfvars files, which are likely to contain sensitive data, such as
-# password, private keys, and other secrets. These should not be part of version 
-# control as they are data points which are potentially sensitive and subject 
-# to change depending on the environment.
-*.tfvars
-*.tfvars.json
-
-# Ignore override files as they are usually used to override resources locally and so
-# are not checked in
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
 
-# Ignore transient lock info files created by terraform apply
-.terraform.tfstate.lock.info
+# Keep lock file for reproducibility
+!Terraform/.terraform.lock.hcl
 
-# Include override files you do wish to add to version control using negated pattern
-# !example_override.tf
+# Terraform vars (keep dev/prod)
+**/*.tfvars
+!**/prod.tfvars
+!**/dev.tfvars
 
-# Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
-# example: *tfplan*
+# Binaries (should not be in repo)
+kubectl.exe
+helm.exe
+agent.jar
+*.exe
 
-# Ignore CLI configuration files
-.terraformrc
-terraform.rc
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Docker
+docker/
+
+# Empty/unused folders
+kubernetes/jenkins/
+kubernetes/namespaces/
+

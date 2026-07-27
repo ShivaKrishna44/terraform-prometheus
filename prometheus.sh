@@ -1,58 +1,204 @@
 #!/bin/bash
+set -e
 
-PROM_VERSION=3.4.0
-ALERT_MANGER_VERSION=0.28.1
+# Update system
+sudo yum update -y
+
+# --- Install Prometheus ---
 cd /opt
-wget https://github.com/prometheus/prometheus/releases/download/v$PROM_VERSION/prometheus-$PROM_VERSION.linux-amd64.tar.gz
-tar -xf  prometheus-$PROM_VERSION.linux-amd64.tar.gz
-mv prometheus-$PROM_VERSION.linux-amd64 prometheus
+sudo wget https://github.com/prometheus/prometheus/releases/download/v2.53.0/prometheus-2.53.0.linux-amd64.tar.gz
+sudo tar -xvf prometheus-2.53.0.linux-amd64.tar.gz
+sudo mv prometheus-2.53.0.linux-amd64 prometheus
 
-wget https://github.com/prometheus/alertmanager/releases/download/v$ALERT_MANGER_VERSION/alertmanager-$ALERT_MANGER_VERSION.linux-amd64.tar.gz
-tar -xf alertmanager-$ALERT_MANGER_VERSION.linux-amd64.tar.gz
-mv alertmanager-$ALERT_MANGER_VERSION.linux-amd64 alertmanager
+# Prometheus config
+sudo cat > /opt/prometheus/prometheus.yml << 'EOF'
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
 
-cd /tmp
-git clone https://github.com/DAWS-82S/terraform-prometheus.git
-cd terraform-prometheus
-cp prometheus.service /etc/systemd/system/prometheus.service
-cp alertmanager.service  /etc/systemd/system/alertmanager.service
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["localhost:9093"]
 
-rm -rf /opt/prometheus/prometheus.yml
-rm -rf /opt/alertmanager/alertmanager.yml
-cp prometheus.yml /opt/prometheus/prometheus.yml
-cp alertmanager.yml /opt/alertmanager/alertmanager.yml
-cp -r alert-rules /opt/prometheus/
+rule_files:
+  - "alert-rules/*.yml"
 
-systemctl start alertmanager
-systemctl enable alertmanager
-if ! systemctl is-active --quiet "alertmanager"; then
-  echo "ERROR: alertmanager is not running!"
-  exit 1
-else
-  echo "alertmanager is running."
-fi
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          app: "prometheus"
 
-systemctl start prometheus
-systemctl enable prometheus
-if ! systemctl is-active --quiet "prometheus"; then
-  echo "ERROR: prometheus is not running!"
-  exit 1
-else
-  echo "prometheus is running."
-fi
+  - job_name: "ec2_instances"
+    ec2_sd_configs:
+      - region: "us-east-1"
+        filters:
+          - name: tag:Monitoring
+            values: ["true"]
+        port: 9100
+    relabel_configs:
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: name
+      - source_labels: [__meta_ec2_private_ip]
+        target_label: private_ip
+EOF
 
-curl -o gpg.key https://rpm.grafana.com/gpg.key
-rpm --import gpg.key
-cp grafana.repo /etc/yum.repos.d/grafana.repo
+# Alert rules
+sudo mkdir -p /opt/prometheus/alert-rules
 
-dnf install grafana -y
+sudo cat > /opt/prometheus/alert-rules/instance-down.yml << 'EOF'
+groups:
+- name: InstanceDown
+  labels:
+    team: devops
+  rules:
+  - alert: InstanceDownAlert
+    expr: up < 1
+    for: 1m
+    keep_firing_for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Instance is Down"
+EOF
 
-cp prometheus-ds.yml /etc/grafana/provisioning/datasources/prometheus.yaml
-chown root:grafana /etc/grafana/provisioning/datasources/prometheus.yaml
-chmod 640 /etc/grafana/provisioning/datasources/prometheus.yaml
+sudo cat > /opt/prometheus/alert-rules/cpu-utilisation.yml << 'EOF'
+groups:
+- name: CPUUtilisation
+  labels:
+    team: devops
+  rules:
+  - alert: CPUUtilisationAlert
+    expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])*100)) > 80
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High CPU on {{ $labels.name }}"
+EOF
 
-systemctl daemon-reload
-systemctl start grafana-server
-systemctl enable grafana-server
+sudo cat > /opt/prometheus/alert-rules/memory.yml << 'EOF'
+groups:
+- name: MemoryUsage
+  labels:
+    team: devops
+  rules:
+  - alert: HighMemoryAlert
+    expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High memory on {{ $labels.name }}"
+EOF
 
+sudo cat > /opt/prometheus/alert-rules/disk.yml << 'EOF'
+groups:
+- name: DiskUsage
+  labels:
+    team: devops
+  rules:
+  - alert: DiskAlmostFull
+    expr: (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 > 80
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Disk > 80% on {{ $labels.name }}"
+EOF
 
+# Prometheus systemd service
+sudo cat > /etc/systemd/system/prometheus.service << 'EOF'
+[Unit]
+Description=Prometheus Monitoring System
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/opt/prometheus/prometheus --config.file=/opt/prometheus/prometheus.yml
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable prometheus
+sudo systemctl start prometheus
+
+# --- Install Alertmanager ---
+cd /opt
+sudo wget https://github.com/prometheus/alertmanager/releases/download/v0.27.0/alertmanager-0.27.0.linux-amd64.tar.gz
+sudo tar -xvf alertmanager-0.27.0.linux-amd64.tar.gz
+sudo mv alertmanager-0.27.0.linux-amd64 alertmanager
+
+sudo cat > /opt/alertmanager/alertmanager.yml << 'EOF'
+route:
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 1h
+  receiver: 'email'
+
+receivers:
+  - name: 'email'
+    email_configs:
+    - smarthost: 'smtp.gmail.com:587'
+      auth_username: 'your-from-email@gmail.com'
+      auth_password: 'your-app-password'
+      from: 'your-from-email@gmail.com'
+      to: 'your-to-email@gmail.com'
+      headers:
+        subject: 'Prometheus Alert: {{ .CommonAnnotations.summary }}'
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']
+EOF
+
+sudo cat > /etc/systemd/system/alertmanager.service << 'EOF'
+[Unit]
+Description=AlertManager System
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/opt/alertmanager/alertmanager --config.file=/opt/alertmanager/alertmanager.yml
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable alertmanager
+sudo systemctl start alertmanager
+
+# --- Install Grafana ---
+sudo cat > /etc/yum.repos.d/grafana.repo << 'EOF'
+[grafana]
+name=grafana
+baseurl=https://rpm.grafana.com
+repo_gpgcheck=1
+enabled=1
+gpgcheck=1
+gpgkey=https://rpm.grafana.com/gpg.key
+sslverify=1
+sslcacert=/etc/pki/tls/certs/ca-bundle.crt
+EOF
+
+sudo yum install -y grafana
+sudo systemctl enable grafana-server
+sudo systemctl start grafana-server
+
+echo "=== Monitoring Stack Installed ==="
+echo "Prometheus:   http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):9090"
+echo "Grafana:      http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):3000 (admin/admin)"
+echo "Alertmanager: http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):9093"
