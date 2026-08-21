@@ -35,7 +35,7 @@ data "aws_ami" "amazon_linux" {
 # =============================================================================
 resource "aws_key_pair" "monitoring" {
   key_name   = "my-new-key"
-  public_key = file("C:/Devops/my-new-key.pub")
+  public_key = file(var.ssh_public_key_path)
 }
 
 # =============================================================================

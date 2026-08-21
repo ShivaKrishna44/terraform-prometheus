@@ -27,6 +27,12 @@ agent.jar
 .DS_Store
 Thumbs.db
 
+# SSH private keys (NEVER commit these)
+keys/my-new-key
+keys/*.pem
+keys/id_*
+!keys/*.pub
+
 # IDE
 .vscode/
 .idea/
