@@ -1,0 +1,142 @@
+## Prometheus Alert Rules — Banking Transactions
+## Copy to /opt/prometheus/alert-rules/ on your Prometheus server
+
+groups:
+  - name: BankingTransactions
+    rules:
+      # High failure rate (>5% in last 5 minutes)
+      - alert: HighTransactionFailureRate
+        expr: |
+          (
+            sum(rate(bank_transactions_total{status="failed"}[5m]))
+            /
+            sum(rate(bank_transactions_total[5m]))
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          team: payments
+        annotations:
+          summary: "Transaction failure rate above 5%"
+          description: "{{ $value | humanizePercentage }} of transactions are failing in the last 5 minutes."
+
+      # UPI failures specifically (>3%)
+      - alert: UPIHighFailureRate
+        expr: |
+          (
+            sum(rate(bank_transactions_total{type="UPI",status="failed"}[5m]))
+            /
+            sum(rate(bank_transactions_total{type="UPI"}[5m]))
+          ) > 0.03
+        for: 3m
+        labels:
+          severity: critical
+          team: upi
+        annotations:
+          summary: "UPI failure rate above 3%"
+          description: "UPI transaction failures at {{ $value | humanizePercentage }}. Check payment gateway."
+
+      # High latency (P95 > 5 seconds)
+      - alert: HighTransactionLatency
+        expr: histogram_quantile(0.95, rate(bank_response_time_seconds_bucket[5m])) > 5
+        for: 3m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "P95 transaction latency above 5 seconds"
+          description: "95th percentile latency is {{ $value }}s. Users experiencing slow transactions."
+
+      # Queue depth high (transactions piling up)
+      - alert: HighPendingQueue
+        expr: bank_pending_transactions{type="NEFT"} > 1000
+        for: 5m
+        labels:
+          severity: warning
+          team: core-banking
+        annotations:
+          summary: "NEFT pending queue above 1000"
+          description: "{{ $value }} NEFT transactions waiting. Processing may be stuck."
+
+      # Active users drop (possible outage)
+      - alert: ActiveUsersDropped
+        expr: |
+          (
+            bank_active_users{channel="mobile_app"} 
+            < 
+            (bank_active_users{channel="mobile_app"} offset 1h) * 0.5
+          )
+        for: 5m
+        labels:
+          severity: critical
+          team: mobile
+        annotations:
+          summary: "Mobile app users dropped by >50%"
+          description: "Active mobile users dropped from {{ with query \"bank_active_users{channel='mobile_app'} offset 1h\" }}{{ . | first | value }}{{ end }} to {{ $value }}. Possible app outage."
+
+      # Fraud blocks spike
+      - alert: FraudBlockSpike
+        expr: rate(bank_transaction_failures{reason="fraud_blocked"}[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          team: fraud
+        annotations:
+          summary: "Fraud-blocked transactions spiking"
+          description: "{{ $value }} fraud blocks per second. Possible attack or false positive surge."
+
+      # System errors
+      - alert: SystemErrorsHigh
+        expr: rate(bank_system_errors_total[5m]) > 5
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "High system error rate"
+          description: "{{ $value }} system errors/sec. Service {{ $labels.service }} with {{ $labels.error_type }}."
+
+      # Revenue drop (compared to same time yesterday)
+      - alert: RevenueDrop
+        expr: |
+          (
+            sum(rate(bank_revenue_total_inr[1h]))
+            <
+            sum(rate(bank_revenue_total_inr[1h] offset 24h)) * 0.5
+          )
+        for: 15m
+        labels:
+          severity: warning
+          team: business
+        annotations:
+          summary: "Revenue dropped >50% vs yesterday"
+          description: "Current revenue rate significantly lower than same time yesterday."
+
+  - name: BankingInfrastructure
+    rules:
+      # No transactions at all (complete outage)
+      - alert: NoTransactions
+        expr: sum(rate(bank_transactions_total[2m])) == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: oncall
+        annotations:
+          summary: "ZERO transactions processing"
+          description: "No transactions have been processed in 2 minutes. Complete outage suspected."
+
+      # Login failure rate high
+      - alert: LoginFailureRateHigh
+        expr: |
+          (
+            sum(rate(bank_login_attempts_total{status="failed"}[5m]))
+            /
+            sum(rate(bank_login_attempts_total[5m]))
+          ) > 0.15
+        for: 3m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "Login failure rate above 15%"
+          description: "{{ $value | humanizePercentage }} login failures. Possible credential stuffing attack."
